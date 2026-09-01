@@ -1,0 +1,45 @@
+name: qt-based-img
+
+services:
+  rqt-based-env:
+    container_name: rqt-based-env
+    image: rqt-based-env:latest
+    build:
+      context: .
+      dockerfile: dockerfile
+    command: /sbin/init
+    network_mode: host
+    ipc: host
+    privileged: true
+    cgroup: host
+
+    environment:
+      - DISPLAY=${DISPLAY}
+      - NVIDIA_DRIVER_CAPABILITIES=all
+      - FASTDDS_DEFAULT_PROFILES_FILE=/opt/ros/fastdds-profile.xml
+      - ROS_DOMAIN_ID=0
+
+    volumes:
+      - /sys/fs/cgroup:/sys/fs/cgroup:rw
+      - /tmp/.X11-unix:/tmp/.X11-unix
+      - ./fastdds-profile.xml:/opt/ros/fastdds-profile.xml:ro
+      - ${HOME}/workspace/my-work:/workspace
+      - ${HOME}/.docker-qtcreator/config:/root/.config/QtProject
+      - ${HOME}/.docker-qtcreator/share:/root/.local/share/QtProject
+      - ${HOME}/.docker-qtcreator/cache:/root/.cache/QtProject
+
+    tmpfs:
+      - /run
+      - /run/lock
+      - /tmp
+
+    devices:
+      - /dev/dri:/dev/dri
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]

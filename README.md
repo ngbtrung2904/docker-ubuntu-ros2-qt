@@ -41,6 +41,7 @@ A comprehensive Docker environment based on **Ubuntu 24.04 LTS** pre-configured 
 | File / Directory | Description |
 | :--- | :--- |
 | [`dockerfile`](file:///home/trungnb/workspace/my-work/docker-ws/qt-based-img/dockerfile) | Dockerfile recipe building `rqt-based-env:latest`. |
+| [`docker-compose.yml`](file:///home/trungnb/workspace/my-work/docker-ws/qt-based-img/docker-compose.yml) | Declarative Compose configuration for managing GPU, GUI, FastDDS, systemd, and volume mounts. |
 | [`build-docker-img.sh`](file:///home/trungnb/workspace/my-work/docker-ws/qt-based-img/build-docker-img.sh) | Script to package local Qt environment into `mlib3rd/Qt.tar.gz` and trigger `docker build`. |
 | [`start-qt-container.sh`](file:///home/trungnb/workspace/my-work/docker-ws/qt-based-img/start-qt-container.sh) | Main launcher script starting the container with X11, GPU support, systemd init, FastDDS profile, and persistent volume mounts. |
 | [`start-terminal-session.sh`](file:///home/trungnb/workspace/my-work/docker-ws/qt-based-img/start-terminal-session.sh) | Launches a temporary, lightweight interactive `bash` shell inside the container. |
@@ -56,7 +57,7 @@ A comprehensive Docker environment based on **Ubuntu 24.04 LTS** pre-configured 
 
 Before building or running the container, ensure your host system satisfies the following requirements:
 
-1. **Docker**: Installed and running on Linux.
+1. **Docker & Docker Compose**: Installed and running on Linux.
 2. **NVIDIA Container Toolkit**: Required for GPU acceleration (see [`docker-install-guide.md`](file:///home/trungnb/workspace/my-work/docker-ws/qt-based-img/docker-install-guide.md#2-prerequisites) for step-by-step setup).
 3. **X11 Display**: A running X server on the host for GUI applications.
 4. **Qt 6.7.2 on Host**: Local installation at `$HOME/Qt` if building from scratch via `build-docker-img.sh`.
@@ -73,11 +74,33 @@ To archive local Qt dependencies (if not already archived in `mlib3rd/Qt.tar.gz`
 ./build-docker-img.sh
 ```
 
-This generates the Docker image tagged as `rqt-based-env:latest`.
+Or build using Docker Compose:
+```bash
+docker compose build
+```
 
 ### 2. Run the Container with GUI Support
 
-To start the container with full GUI forwarding, systemd init, GPU access, and persistent volume mounts:
+#### Option A: Using Docker Compose (Recommended)
+Make sure local X server access is granted, then start the container:
+
+```bash
+xhost +local:docker
+docker compose up -d
+```
+
+To enter an interactive shell:
+```bash
+docker compose exec rqt-based-env bash
+```
+
+To stop the container:
+```bash
+docker compose down
+```
+
+#### Option B: Using the Launcher Script
+Alternatively, run the launcher script:
 
 ```bash
 ./start-qt-container.sh
@@ -144,3 +167,22 @@ For comprehensive details on host NVIDIA setup, Fast DDS configuration rationale
 - **Google Drive LFS Files & Pre-built Image**:
   - [LFS Dependencies Folder](https://drive.google.com/drive/folders/14BGOLk7sR8P1wWYu3HLT-rhYEA8ev69-?usp=drive_link)
   - [Pre-built Docker Image Archive](https://drive.google.com/drive/folders/1LTTGTxSGOOlnBSf-TOyOVT7iUzzliVHR?usp=drive_link)
+
+- **Working with docker compose**:
+```bash
+# 1. Allow X server access on the host (for GUI apps)
+xhost +local:docker
+
+# 2. Build the image (optional if already built)
+docker compose build
+
+# 3. Start the container in background
+docker compose up -d
+
+# 4. Attach an interactive shell
+docker compose exec rqt-based-env bash
+
+# 5. Stop the container
+docker compose down
+
+```
