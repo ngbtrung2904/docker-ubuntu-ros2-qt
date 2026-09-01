@@ -7,7 +7,8 @@ A comprehensive Docker environment based on **Ubuntu 24.04 LTS** pre-configured 
 ## 📑 Table of Contents
 
 - [Features](#-features)
-- [Repository Structure](#-repository-structure)
+- [Project Structure](#-project-structure)
+- [LFS & Pre-built Image Downloads](#-lfs--pre-built-image-downloads)
 - [Prerequisites](#-prerequisites)
 - [Quick Start](#-quick-start)
   - [1. Build the Docker Image](#1-build-the-docker-image)
@@ -36,20 +37,56 @@ A comprehensive Docker environment based on **Ubuntu 24.04 LTS** pre-configured 
 
 ---
 
-## 📁 Repository Structure
+## 📁 Project Structure
 
-| File / Directory | Description |
-| :--- | :--- |
-| [`dockerfile`](file:///home/trungnb/workspace/my-work/docker-ws/qt-based-img/dockerfile) | Dockerfile recipe building `rqt-based-env:latest`. |
-| [`docker-compose.yml`](file:///home/trungnb/workspace/my-work/docker-ws/qt-based-img/docker-compose.yml) | Declarative Compose configuration for managing GPU, GUI, FastDDS, systemd, and volume mounts. |
-| [`build-docker-img.sh`](file:///home/trungnb/workspace/my-work/docker-ws/qt-based-img/build-docker-img.sh) | Script to package local Qt environment into `mlib3rd/Qt.tar.gz` and trigger `docker build`. |
-| [`start-qt-container.sh`](file:///home/trungnb/workspace/my-work/docker-ws/qt-based-img/start-qt-container.sh) | Main launcher script starting the container with X11, GPU support, systemd init, FastDDS profile, and persistent volume mounts. |
-| [`start-terminal-session.sh`](file:///home/trungnb/workspace/my-work/docker-ws/qt-based-img/start-terminal-session.sh) | Launches a temporary, lightweight interactive `bash` shell inside the container. |
-| [`ros2-listener-host.sh`](file:///home/trungnb/workspace/my-work/docker-ws/qt-based-img/ros2-listener-host.sh) | Helper script to run a ROS 2 listener on the host using the UDP Fast DDS profile. |
-| [`fastdds-profile.xml`](file:///home/trungnb/workspace/my-work/docker-ws/qt-based-img/fastdds-profile.xml) | Fast DDS configuration profile explicitly using UDPv4 transport to bypass shared memory limits. |
-| [`docker-install-guide.md`](file:///home/trungnb/workspace/my-work/docker-ws/qt-based-img/docker-install-guide.md) | Detailed documentation on Docker setup, NVIDIA container toolkit installation, systemd init, and Fast DDS rationale. |
-| [`mlib3rd/`](file:///home/trungnb/workspace/my-work/docker-ws/qt-based-img/mlib3rd) | Third-party archives (Boost 1.83.0, Qt 6.7.2, RTL-SDR, Snap7, fonts, digital map). |
-| [`docker-img/`](file:///home/trungnb/workspace/my-work/docker-ws/qt-based-img/docker-img) | Saved tarball images (e.g. `rqt-based-env.tar`). |
+```
+qt-based-img/
+├── dockerfile                          # Image build recipe (Ubuntu 24.04 + ROS 2 Rolling + Qt 6.7.2)
+├── docker-compose.yml                  # Declarative Compose config (GPU, GUI, FastDDS, systemd)
+├── build-docker-img.sh                 # Packages $HOME/Qt → mlib3rd/Qt.tar.gz, then runs docker build
+├── start-qt-container.sh              # Full GUI launcher (X11 + GPU + systemd + FastDDS + volumes)
+├── start-terminal-session.sh           # Minimal disposable bash session
+├── ros2-listener-host.sh              # Run a ROS 2 listener on the host with UDP FastDDS profile
+├── fastdds-profile.xml                # Fast DDS: UDPv4 only, shared-memory disabled
+├── docker-install-guide.md            # Detailed setup & troubleshooting documentation
+├── .gitignore
+│
+├── mlib3rd/                           # ⚠️ Third-party archives (Git-ignored, download from LFS)
+│   ├── Qt.tar.gz                      #   Qt 6.7.2 (~2.3 GB) — extracted to /opt/Qt
+│   ├── boost_1_83_0.tar.gz            #   Boost 1.83.0 (~145 MB) — built & installed to /usr/local
+│   ├── digital-map.zip                #   Digital map data (~135 MB) — extracted to /opt/digital-map
+│   ├── rtl-sdr.tar.xz                 #   RTL-SDR source — built & installed system-wide
+│   ├── JetBrains_Mono-and-Roboto_Condensed.zip  # Developer fonts
+│   └── snap7/                         #   Siemens S7 PLC communication library
+│       ├── libsnap7.so                #     Pre-built shared library → /usr/bin/
+│       ├── snap7.cpp                  #     C++ source
+│       ├── snap7.h                    #     Header file
+│       └── How_To_Install_snap7.md    #     Installation notes
+│
+└── docker-img/                        # ⚠️ Pre-built image archive (Git-ignored, download from Drive)
+    └── rqt-based-env.tar              #   Exported image (~4.5 GB), load with: docker load -i
+```
+
+> **Note:** The `mlib3rd/` and `docker-img/` directories are **Git-ignored**. You must download them before building.
+> See [LFS & Pre-built Image Downloads](#-lfs--pre-built-image-downloads) below.
+
+---
+
+## 📦 LFS & Pre-built Image Downloads
+
+The large binary dependencies and pre-built image are hosted on Google Drive:
+
+| Resource | Size | Link |
+| :--- | :--- | :--- |
+| **LFS Dependencies** (`mlib3rd/` contents) | ~2.6 GB | [📥 Download](https://drive.google.com/drive/folders/14BGOLk7sR8P1wWYu3HLT-rhYEA8ev69-?usp=drive_link) |
+| **Pre-built Docker Image** (`docker-img/rqt-based-env.tar`) | ~4.5 GB | [📥 Download](https://drive.google.com/drive/folders/1LTTGTxSGOOlnBSf-TOyOVT7iUzzliVHR?usp=drive_link) |
+
+**Option 1 — Build from scratch:** Download the LFS dependencies into `mlib3rd/`, then run `./build-docker-img.sh`.
+
+**Option 2 — Load pre-built image:** Download `rqt-based-env.tar` into `docker-img/`, then load directly:
+```bash
+docker load -i docker-img/rqt-based-env.tar
+```
 
 ---
 
@@ -61,6 +98,7 @@ Before building or running the container, ensure your host system satisfies the 
 2. **NVIDIA Container Toolkit**: Required for GPU acceleration (see [`docker-install-guide.md`](file:///home/trungnb/workspace/my-work/docker-ws/qt-based-img/docker-install-guide.md#2-prerequisites) for step-by-step setup).
 3. **X11 Display**: A running X server on the host for GUI applications.
 4. **Qt 6.7.2 on Host**: Local installation at `$HOME/Qt` if building from scratch via `build-docker-img.sh`.
+5. **LFS Files**: Download `mlib3rd/` contents from [Google Drive](https://drive.google.com/drive/folders/14BGOLk7sR8P1wWYu3HLT-rhYEA8ev69-?usp=drive_link) (or use the pre-built image instead).
 
 ---
 
