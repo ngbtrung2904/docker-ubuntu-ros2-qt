@@ -22,7 +22,10 @@ profile must be loaded on **both** the host and the container (see
 | --- | --- |
 | `dockerfile` | Build recipe for the `rqt-based-env:latest` image |
 | `build-docker-img.sh` | Helper that packages Qt and runs `docker build` |
-| `start-qt-container.sh` | Starts the GUI container session (X11 + GPU + ROS) |
+| `start-qt-container.sh` | Starts the GUI container session with `--net=host` (X11 + GPU + ROS) |
+| `start-qt-container-portmap.sh` | Starts the GUI container session with host port mappings instead of `--net=host` |
+| `docker-compose.yml` | Docker Compose variant using `--net=host` (matches `start-qt-container.sh`) |
+| `docker-compose-portmap.yml` | Docker Compose variant with host port mappings instead of `--net=host` |
 | `start-terminal-session.sh` | Starts a minimal headless `bash` session |
 | `fastdds-profile.xml` | Fast DDS transport profile: UDP only, shared memory disabled |
 | `boost_1_83_0.tar.gz` | Boost 1.83.0 source used by the Dockerfile |
@@ -179,6 +182,65 @@ I heard: 'Hello World: 1'
 I heard: 'Hello World: 2'
 ...
 ```
+
+### 5.2 Port-mapped mode and device configuration
+
+The application uses a `[Device]` configuration that mixes two kinds of entries:
+
+- **`IP;Port`** entries (`SPC_Address`, `RCU_Address`, `RDP_Address`,
+  `IOServer1_Address`, `IOServer2_Address`) — the app **connects out** to those
+  devices. No host→container port mapping is needed; the container just needs
+  outbound network access.
+- **Port-only** entries — other devices **connect in** to the app running inside
+  the container. These ports must be published from the host to the container:
+
+  ```ini
+  SyncMCmdPort=61001
+  FwdFlashQtrmPort=61002
+  ```
+
+  → host ports `61001` and `61002` are mapped to container ports `61001` and
+  `61002`.
+
+- **IP-only** entries (`Switch1Address`, `Switch2Address`,
+  `IDRACServerAddress`, `SyncServerAddress`) — outbound only, no mapping.
+
+`start-qt-container.sh` uses `--net=host`, which bypasses port mapping entirely
+(the container shares the host network, so every port is reachable). When
+testing without `--net=host`, use `start-qt-container-portmap.sh`:
+
+```bash
+./start-qt-container-portmap.sh
+```
+
+It is identical to the host-network script but replaces `--net=host` with:
+
+```bash
+-p 61001:61001
+-p 61002:61002
+```
+
+> Note: without `--net=host`, ROS 2 discovery between the container and the
+> host does not work over multicast. Use the `--net=host` script if you need
+> container↔host ROS 2 communication.
+
+The same setup is available via Docker Compose:
+
+```bash
+# Host network variant (matches start-qt-container.sh)
+docker compose up -d
+docker exec -it rqt-based-env bash
+
+# Port-mapped variant (matches start-qt-container-portmap.sh)
+docker compose -f docker-compose-portmap.yml up -d
+docker exec -it rqt-based-env bash
+
+docker compose down       # stop and remove
+```
+
+Both files use `cgroup: host` (the Compose equivalent of `--cgroupns=host`) so
+systemd can boot. `docker-compose.yml` uses `network_mode: host`; the
+`docker-compose-portmap.yml` variant publishes the two device ports instead.
 
 ## 6. Why the session disables shared memory
 
