@@ -42,7 +42,7 @@ docker run -d --rm \
   -v "$(pwd)/fastdds-profile.xml:/opt/ros/fastdds-profile.xml:ro" \
   -e FASTDDS_DEFAULT_PROFILES_FILE=/opt/ros/fastdds-profile.xml \
   -e ROS_DOMAIN_ID=0 \
-  -v /home/trungnb/workspace/my-work:/workspace \
+  -v "$(pwd)":/workspace \
   -v ~/.docker-qtcreator/config:/root/.config/QtProject \
   -v ~/.docker-qtcreator/share:/root/.local/share/QtProject \
   -v ~/.docker-qtcreator/cache:/root/.cache/QtProject \

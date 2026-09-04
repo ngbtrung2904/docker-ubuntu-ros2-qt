@@ -11,18 +11,21 @@ RUN apt-get update && apt-get install -y \
     gnupg2 \
     lsb-release \
     software-properties-common \
+    && add-apt-repository universe \
     && locale-gen en_US.UTF-8 \
     && update-locale LC_ALL=en_US.UTF-8 LANG=en_US.UTF-8 \
     && rm -rf /var/lib/apt/lists/*
 ENV LANG=en_US.UTF-8
 
 # 2. Add ROS 2 repository for ROS Rolling
-RUN add-apt-repository universe \
-    && curl -sSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.key -o /usr/share/keyrings/ros-archive-keyring.gpg \
-    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/ros-archive-keyring.gpg] http://packages.ros.org/ros2/ubuntu $(lsb_release -cs) main" | tee /etc/apt/sources.list.d/ros2.list > /dev/null
+COPY mlib3rd/rolling.tar.xz /tmp/
+RUN cd / \
+    && tar xJf /tmp/rolling.tar.xz \
+    && rm -f /tmp/rolling.tar.xz
 
 # 3. Install requested packages and tools
-RUN apt-get update && apt-get install -y \
+RUN apt-get update && \ 
+    apt-get -q -y install \
     build-essential \
     nano \
     sudo \
@@ -42,7 +45,6 @@ RUN apt-get update && apt-get install -y \
     net-tools \
     protobuf-compiler \
     libprotobuf-dev \
-    ros-rolling-desktop \
     mold \
     npm \
     libzmq3-dev \
@@ -52,14 +54,32 @@ RUN apt-get update && apt-get install -y \
     libxcb-cursor0 \
     libftgl-dev \
     python3 python3-pip python3-venv python3-dev \
-    python3-colcon-common-extensions \
     ccache \
     unzip \
     libusb-1.0-0-dev \
     fontconfig \
     netcat-openbsd \
     vlc \
+    liblttng-ust-dev=2.13.7-1.1ubuntu2 \
+    liblttng-ust1t64=2.13.7-1.1ubuntu2 \
+    liblttng-ust-common1t64=2.13.7-1.1ubuntu2 \
+    liblttng-ust-ctl5t64=2.13.7-1.1ubuntu2 \
+    libconsole-bridge1.0 \
+    libspdlog1.12 \
+    libyaml-cpp0.8 \
+    libtinyxml2-10 \
+    liborocos-kdl1.5 \
+    libopencv-core406t64 \
+    libopencv-imgproc406t64 \
+    libopencv-imgcodecs406t64 \
+    libopencv-highgui406t64 \
+    libopencv-videoio406t64 \
+    python3-numpy \
+    python3-lark \
+    && ldconfig \
     && rm -rf /var/lib/apt/lists/*
+
+RUN pip install --break-system-packages -U colcon-common-extensions
 
 # 4. Copy and build Boost 1.83.0 from tarball
 COPY mlib3rd/boost_1_83_0.tar.gz /tmp/
@@ -108,6 +128,11 @@ RUN unzip -q /tmp/digital-map.zip -d /opt/ \
 RUN echo "source /opt/ros/rolling/setup.bash" >> /root/.bashrc
 
 ADD mlib3rd/Qt.tar.gz /opt/
+
+# 9. Copy and extract xf4_asr_rdd project source
+COPY mlib3rd/xf4_asr_rdd.tar.gz /tmp/
+RUN tar -xzf /tmp/xf4_asr_rdd.tar.gz -C /opt \
+    && rm -f /tmp/xf4_asr_rdd.tar.gz
 
 ENV PATH="/opt/Qt/Tools/QtCreator/bin:/opt/Qt/6.7.2/gcc_64/bin:${PATH}"
 ENV CMAKE_PREFIX_PATH="/opt/Qt/6.7.2/gcc_64"
