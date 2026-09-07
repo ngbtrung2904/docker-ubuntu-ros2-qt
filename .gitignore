@@ -42,6 +42,7 @@
 *.out
 *.app
 *.vscode
+*.github
 
 # Qt-es
 object_script.*.Release
