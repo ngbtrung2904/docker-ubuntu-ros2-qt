@@ -168,6 +168,31 @@ To spin up a temporary, disposable container without systemd:
 ./start-terminal-session.sh
 ```
 
+### 4. Remove Docker and containers
+1. Stop all running containers
+``` bash
+docker ps -aq | xargs -r docker stop
+```
+2. Remove all containers (both running and stopped)
+``` bash
+docker ps -aq | xargs -r docker rm -f
+```
+
+3. Remove all Docker images
+```bash
+docker images -q | xargs -r docker rmi -f
+```
+
+4. Remove all Docker volumes (mounted data)
+```bash
+docker volume ls -q | xargs -r docker volume rm
+```
+
+5. Clean up unused networks, build cache, and any remaining resources
+```bash
+docker system prune -a --volumes -f
+```
+
 ---
 
 ## 📡 ROS 2 & Fast DDS Communication

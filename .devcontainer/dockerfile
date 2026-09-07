@@ -142,7 +142,10 @@ RUN unzip -q /tmp/digital-map.zip -d /opt/ \
 
 RUN echo "source /opt/ros/rolling/setup.bash" >> /root/.bashrc
 
+ADD mlib3rd/Qt.tar.gz /opt/
 
+ENV PATH="/opt/Qt/Tools/QtCreator/bin:/opt/Qt/6.7.2/gcc_64/bin:${PATH}"
+ENV CMAKE_PREFIX_PATH="/opt/Qt/6.7.2/gcc_64"
 
 #9. Copy and extract qwt-6.3.0.tar.bz2, build and install it
 COPY mlib3rd/qwt-6.3.0.tar.bz2 /tmp/

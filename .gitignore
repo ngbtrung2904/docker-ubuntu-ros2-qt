@@ -41,6 +41,7 @@
 *.exe
 *.out
 *.app
+*.vscode
 
 # Qt-es
 object_script.*.Release
