@@ -3,8 +3,8 @@ services:
     container_name: rqt-based-env
     image: rqt-based-env:latest
     build:
-      context: .
-      dockerfile: dockerfile
+      context: ..
+      dockerfile: .devcontainer/dockerfile
     command: /sbin/init
     network_mode: host
     privileged: true

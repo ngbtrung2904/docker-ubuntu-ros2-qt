@@ -22,10 +22,9 @@ COPY mlib3rd/rolling.tar.xz /tmp/
 RUN cd / \
     && tar xJf /tmp/rolling.tar.xz \
     && rm -f /tmp/rolling.tar.xz
-
+    
 # 3. Install requested packages and tools
-RUN apt-get update && \ 
-    apt-get -q -y install \
+RUN apt-get update && apt-get install -y \
     build-essential \
     nano \
     sudo \
@@ -74,12 +73,27 @@ RUN apt-get update && \
     libopencv-imgcodecs406t64 \
     libopencv-highgui406t64 \
     libopencv-videoio406t64 \
+    libxcb-glx0 libx11-xcb1 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 \
+    libxcb-randr0 libxcb-render-util0 libxcb-sync1 libxcb-xfixes0 \
+    libxcb-xinerama0 libxcb-xkb1 libxcb-shape0 libxkbcommon-x11-0 \
+    libgl1 libegl1 libglx-dev libgl1-mesa-dev \
+    libx11-dev libx11-xcb-dev libxext-dev libxfixes-dev libxi-dev \
+    libxrender-dev libxcb1-dev libxcb-glx0-dev libxcb-keysyms1-dev \
+    libxcb-image0-dev libxcb-shm0-dev libxcb-icccm4-dev libxcb-sync-dev \
+    libxcb-xfixes0-dev libxcb-shape0-dev libxcb-randr0-dev \
+    libxcb-render-util0-dev libxcb-util-dev libxcb-xinerama0-dev \
+    libxcb-xkb-dev libxkbcommon-dev libxkbcommon-x11-dev libxcb-cursor-dev \
+    libfontconfig1-dev libfreetype-dev \
+    libglu1-mesa-dev mesa-common-dev libglfw3-dev libglew-dev \
+    libclang-dev libglm-dev libcups2-dev libsoundtouch-dev libasound2-dev \
+    wireshark ffmpeg fonts-roboto \
+    zlib1g-dev graphviz doxygen gettext \
     python3-numpy \
     python3-lark \
     && ldconfig \
     && rm -rf /var/lib/apt/lists/*
 
-RUN pip install --break-system-packages -U colcon-common-extensions
+RUN pip3 install --break-system-packages -U colcon-common-extensions
 
 # 4. Copy and build Boost 1.83.0 from tarball
 COPY mlib3rd/boost_1_83_0.tar.gz /tmp/
@@ -95,12 +109,13 @@ RUN cd /tmp \
 COPY mlib3rd/JetBrains_Mono-and-Roboto_Condensed.zip /tmp/
 RUN mkdir -p /usr/local/share/fonts \
     && unzip -q /tmp/JetBrains_Mono-and-Roboto_Condensed.zip -d /tmp/fonts_temp \
-    && find /tmp/fonts_temp -name "*.ttf" -exec cp {} /usr/local/share/fonts/ \; \
+    && find /tmp/fonts_temp -name "*.ttf" -exec cp {} /usr/share/fonts/ \; \
     && fc-cache -f -v \
     && rm -rf /tmp/JetBrains_Mono-and-Roboto_Condensed.zip /tmp/fonts_temp
 
-# 6. Copy libsnap7.so into /usr/bin of container
-COPY mlib3rd/snap7/libsnap7.so /usr/bin/
+# 6. Install Snap7 where the linker searches for libraries
+COPY mlib3rd/snap7/libsnap7.so /usr/lib/
+RUN ldconfig
 
 # 7. Copy, build, and install rtl-sdr, and add blacklist configuration
 COPY mlib3rd/rtl-sdr.tar.xz /tmp/
@@ -127,12 +142,20 @@ RUN unzip -q /tmp/digital-map.zip -d /opt/ \
 
 RUN echo "source /opt/ros/rolling/setup.bash" >> /root/.bashrc
 
-ADD mlib3rd/Qt.tar.gz /opt/
 
-# 9. Copy and extract xf4_asr_rdd project source
-COPY mlib3rd/xf4_asr_rdd.tar.gz /tmp/
-RUN tar -xzf /tmp/xf4_asr_rdd.tar.gz -C /opt \
-    && rm -f /tmp/xf4_asr_rdd.tar.gz
 
-ENV PATH="/opt/Qt/Tools/QtCreator/bin:/opt/Qt/6.7.2/gcc_64/bin:${PATH}"
-ENV CMAKE_PREFIX_PATH="/opt/Qt/6.7.2/gcc_64"
+#9. Copy and extract qwt-6.3.0.tar.bz2, build and install it
+COPY mlib3rd/qwt-6.3.0.tar.bz2 /tmp/
+RUN cd /tmp \
+    && tar -xjf qwt-6.3.0.tar.bz2 \
+    && cd qwt-6.3.0 \
+    && sed -i '/^QT *=/s/$/ svg/' qwt.pro \
+    && sed -i 's/^[[:space:]]*QWT_CONFIG *=.*QwtSvg/# QWT_CONFIG += QwtSvg/' qwtconfig.pri \
+    && /opt/Qt/6.7.2/gcc_64/bin/qmake \
+    && make -j"$(nproc)" \
+    && make install \
+    && echo "/usr/local/qwt-6.3.0/lib" > /etc/ld.so.conf.d/qwt.conf \
+    && ldconfig \
+    && rm -rf /tmp/qwt-6.3.0 /tmp/qwt-6.3.0.tar.bz2
+
+ENV QT_QPA_PLATFORM=xcb
