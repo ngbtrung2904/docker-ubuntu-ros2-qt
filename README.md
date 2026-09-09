@@ -16,6 +16,8 @@ A comprehensive Docker environment based on **Ubuntu 24.04 LTS** pre-configured 
   - [3. Run a Quick Terminal Session](#3-run-a-quick-terminal-session)
 - [ROS 2 & Fast DDS Communication](#-ros-2--fast-dds-communication)
 - [Mounted Volumes & Persistent Data](#-mounted-volumes--persistent-data)
+- [Appearance: Matching the Host Desktop](#-appearance-matching-the-host-desktop)
+- [Audio: Sound Devices and the Host Audio Server](#-audio-sound-devices-and-the-host-audio-server)
 - [Documentation & External Links](#-documentation--external-links)
 
 ---
@@ -25,6 +27,7 @@ A comprehensive Docker environment based on **Ubuntu 24.04 LTS** pre-configured 
 - **Base OS**: Ubuntu 24.04 LTS (Noble Numbat)
 - **Robotics Middleware**: ROS 2 Rolling (`ros-rolling-desktop`) with Fast DDS configured for UDP-based host-container communication.
 - **GUI & IDE**: Qt 6.7.2 and Qt Creator with X11 forwarding and NVIDIA GPU acceleration (`--gpus all`).
+- **Host-matched Appearance**: GUI apps pick up the host desktop's GTK theme, icon set, cursor and fonts (dark mode included) - see [Appearance](#-appearance-matching-the-host-desktop).
 - **System Service Management**: Runs `systemd` as PID 1 inside the container (`/sbin/init`), allowing standard service management (`systemctl`, `timedatectl`).
 - **Development & Build Tools**: CMake, Ninja, Mold linker, GCC, Clang, ccache, colcon, gedit, Terminator.
 - **Libraries & Hardware Interfacing**:
@@ -45,6 +48,8 @@ qt-based-img/
 ├── docker-compose.yml                  # Declarative Compose config (GPU, GUI, FastDDS, systemd)
 ├── build-docker-img.sh                 # Packages $HOME/Qt → mlib3rd/Qt.tar.gz, then runs docker build
 ├── start-qt-container.sh              # Full GUI launcher (X11 + GPU + systemd + FastDDS + volumes)
+├── host-theme.sh                      # Copies the host desktop theme/icons/cursor/fonts into the container
+├── host-audio.sh                      # Shares host sound devices + audio server (ALSA "default")
 ├── start-terminal-session.sh           # Minimal disposable bash session
 ├── ros2-listener-host.sh              # Run a ROS 2 listener on the host with UDP FastDDS profile
 ├── fastdds-profile.xml                # Fast DDS: UDPv4 only, shared-memory disabled
@@ -195,6 +200,123 @@ When running via [`start-qt-container.sh`](file:///home/trungnb/workspace/my-wor
 
 - Host workspace `/home/trungnb/workspace/my-work` $\rightarrow$ Container `/workspace`
 - Qt Creator settings are persisted on host under `~/.docker-qtcreator/` (`config`, `share`, `cache`).
+
+---
+
+## 🎨 Appearance: Matching the Host Desktop
+
+`start-qt-container.sh` and `start-qt-container-portmap.sh` source
+[`host-theme.sh`](host-theme.sh), which makes GUI apps inside the container look
+like the ones on the host - same GTK theme, icon set, cursor, fonts and dark/light
+mode.
+
+**How it works**
+
+The container already shares the host X display, so the host's XSETTINGS manager
+(`gsd-xsettings`) *tells* GTK apps in the container which theme to use - running
+`gtk-query-settings` inside the container already reports the host values. What
+was missing were the files themselves. `host-theme.sh` therefore:
+
+1. Bind-mounts the host's `/usr/share/{themes,icons,fonts}` read-only under
+   `/usr/local/share/`, plus any per-user `~/.themes`, `~/.icons`, `~/.fonts`.
+   This is *additive* - `/usr/local/share` is searched before `/usr/share`, so
+   the host copies win but nothing shipped in the image is hidden.
+2. Sets `QT_QPA_PLATFORMTHEME=gtk3`, so Qt apps (Qt Creator included) build their
+   palette and fonts from the same GTK theme. The Qt in `/opt` ships the required
+   `libqgtk3.so` plugin, so no distro Qt is pulled in.
+3. Points `XCURSOR_PATH`/`XCURSOR_THEME` at the host cursor theme, since Xcursor
+   does not search `/usr/local/share` by default.
+4. Writes `~/.config/gtk-{3,4}.0/settings.ini` in the container as a fallback for
+   hosts with no XSETTINGS manager, and starts a container-local session D-Bus
+   that the GTK platform theme expects.
+5. Sets Qt Creator's own theme (`flat-dark` / `flat-light`) to match the host's
+   `color-scheme`, in the persisted `~/.docker-qtcreator/config/QtCreator.ini`.
+6. Replays the host's fontconfig *reject* rules into
+   `/etc/fonts/conf.d/71-host-legacy-reject.conf`, rewritten for the
+   `/usr/local/share/fonts` mount point. Font packages use these to hide
+   superseded font files - `fonts-ubuntu` rejects the legacy static
+   `Ubuntu-*.ttf` so the variable `Ubuntu[wdth,wght].ttf` wins. Those rules live
+   in `/etc/fonts`, which is not mounted, so without this step `Ubuntu` resolves
+   to `Ubuntu-B.ttf` and all text renders **bold**.
+7. Writes `/etc/fonts/conf.d/72-host-font-priority.conf`, hiding font files that
+   Dockerfile step 5 dumps flat into `/usr/share/fonts/` when they compete for a
+   family the host also ships. Three different files named
+   `RobotoCondensed-Regular.ttf` exist between the two machines; without this the
+   container picked the zip's redesign while the host uses the classic
+   `fonts-roboto` cut, so any app calling `QFont("Roboto Condensed")` rendered in
+   a visibly different, heavier face. Families the host does not have (JetBrains
+   Mono) are left alone, and hidden files stay on disk.
+8. Bind-mounts loose font files from the host's `/usr/share/fonts` root onto the
+   identical path in the container. Code that opens a `.ttf` by absolute path
+   never consults fontconfig, so rule 7 cannot reach it - and the image ships a
+   *different* font under the very same name. `GLFontManager.cpp` hardcodes
+   `/usr/share/fonts/RobotoCondensed-Regular.ttf`, which is one file on the host
+   and another in the image; without this mount, OpenGL-rendered text would
+   still differ from the host even once the Qt widgets matched.
+
+Everything is read from the host at launch, so changing the host theme and
+re-running the launcher is enough - no image rebuild.
+
+**Verifying it worked**
+
+```bash
+# inside the container - should print the host's theme, not "Adwaita"
+gtk-query-settings | grep -E "theme-name|font-name"
+```
+
+The image also installs `yaru-theme-gtk`, `yaru-theme-icon` and `fonts-ubuntu`
+as a fallback, so it still looks reasonable when run without the launcher (for
+example via `start-terminal-session.sh` or on a non-GNOME host). Rebuild the
+image to pick these up; the launcher's bind-mounts work without a rebuild.
+
+If you start the container with Docker Compose instead, the mounts and
+environment are already in `docker-compose.yml`; run the post-start part once the
+container is up:
+
+```bash
+./host-theme.sh rqt-based-env
+```
+
+> **Note:** Qt Creator's theme is re-applied on every launch. If you prefer to
+> pick a theme by hand inside Qt Creator, drop the `apply_host_theme` call from
+> the launcher script.
+
+---
+
+## 🔊 Audio: Sound Devices and the Host Audio Server
+
+`start-qt-container.sh` also sources [`host-audio.sh`](host-audio.sh), which fixes
+two distinct problems for code that opens ALSA directly (for example
+`snd_pcm_open("default", ...)`).
+
+1. **`/dev/snd` is a snapshot.** It is populated when the container is created,
+   so a card plugged in later - a USB capture device, say - has no device nodes
+   inside, even though `/proc/asound` (shared with the host) lists it.
+   Bind-mounting `/dev/snd` keeps the nodes in sync.
+2. **`"default"` means something different inside.** On the host, `pipewire-alsa`
+   redefines the ALSA `default` PCM to follow the desktop's current default
+   source/sink. The container has no such config, so `default` falls back to raw
+   card 0 - usually the unconnected onboard input. An app that records fine from
+   `"default"` on the host therefore captures the wrong device in the container.
+   `host-audio.sh` mounts the host's PulseAudio/PipeWire socket (plus the auth
+   cookie, since the container runs as root and the socket authenticates by uid)
+   and writes an `/etc/asound.conf` routing `default` through it.
+
+Verify with:
+
+```bash
+arecord -D default -d 1 -f cd -v /tmp/t.wav   # should print "ALSA <-> PulseAudio PCM I/O Plugin"
+ls /dev/snd                                    # should list every card the host has
+```
+
+The image installs `libasound2-plugins` (the ALSA→PulseAudio bridge) and
+`alsa-utils`; on an image built before that, `host-audio.sh` installs the bridge
+at startup. With Docker Compose the mounts are already in the compose file - run
+the post-start part once the container is up:
+
+```bash
+./host-audio.sh rqt-based-env
+```
 
 ---
 

@@ -3,6 +3,12 @@
 # Container name so we can exec into the running systemd container
 CONTAINER_NAME="rqt-based-env"
 
+# Appearance settings copied from the host desktop (theme, icons, cursor, fonts)
+source "$(dirname "$(readlink -f "$0")")/host-theme.sh"
+
+# Host sound devices and audio server (ALSA "default" -> host default source)
+source "$(dirname "$(readlink -f "$0")")/host-audio.sh"
+
 # Grant local X server access
 xhost +local:docker
 
@@ -46,6 +52,8 @@ docker run -d --rm \
   -v ~/.docker-qtcreator/config:/root/.config/QtProject \
   -v ~/.docker-qtcreator/share:/root/.local/share/QtProject \
   -v ~/.docker-qtcreator/cache:/root/.cache/QtProject \
+  "${HOST_THEME_ARGS[@]}" \
+  "${HOST_AUDIO_ARGS[@]}" \
   rqt-based-env:latest \
   /sbin/init
 
@@ -70,6 +78,12 @@ HOST_TZ=$(cat /etc/timezone 2>/dev/null || readlink /etc/localtime | sed 's#.*/z
 if [ -n "$HOST_TZ" ]; then
   docker exec "$CONTAINER_NAME" timedatectl set-timezone "$HOST_TZ" >/dev/null 2>&1
 fi
+
+# Match the host GTK/Qt theme, fonts and Qt Creator light/dark mode
+apply_host_theme "$CONTAINER_NAME"
+
+# Route ALSA through the host audio server
+apply_host_audio "$CONTAINER_NAME"
 
 echo ""
 echo "Container '$CONTAINER_NAME' is running (port-mapped, no --net=host)."

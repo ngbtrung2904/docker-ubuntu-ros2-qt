@@ -22,7 +22,20 @@ COPY mlib3rd/rolling.tar.xz /tmp/
 RUN cd / \
     && tar xJf /tmp/rolling.tar.xz \
     && rm -f /tmp/rolling.tar.xz
-    
+
+# 2b. Python packages ROS 2 expects. The tarball above carries no apt metadata,
+#     so nothing pulls these in on its own; the list mirrors the host's. Keep it
+#     one package per line with no comments or blanks - xargs feeds every line
+#     straight to apt. 14 ROS-tooling entries (bloom, rosdep, vcstool, colcon-*)
+#     were dropped: they exist only in the ROS apt repo at packages.ros.org,
+#     which this image does not configure, and apt aborts the whole install on
+#     an unresolvable name. colcon arrives via pip further down.
+COPY mlib3rd/python3_pkgs.txt /tmp/python3_pkgs.txt
+RUN apt-get update && \
+    xargs apt-get install -y --no-install-recommends < /tmp/python3_pkgs.txt && \
+    rm -f /tmp/python3_pkgs.txt && \
+    rm -rf /var/lib/apt/lists/*
+
 # 3. Install requested packages and tools
 RUN apt-get update && apt-get install -y \
     build-essential \
@@ -93,7 +106,7 @@ RUN apt-get update && apt-get install -y \
     && ldconfig \
     && rm -rf /var/lib/apt/lists/*
 
-RUN pip3 install --break-system-packages -U colcon-common-extensions
+RUN pip install --break-system-packages -U colcon-common-extensions
 
 # 4. Copy and build Boost 1.83.0 from tarball
 COPY mlib3rd/boost_1_83_0.tar.gz /tmp/
@@ -142,7 +155,10 @@ RUN unzip -q /tmp/digital-map.zip -d /opt/ \
 
 RUN echo "source /opt/ros/rolling/setup.bash" >> /root/.bashrc
 
+ADD mlib3rd/Qt.tar.gz /opt/
 
+ENV PATH="/opt/Qt/Tools/QtCreator/bin:/opt/Qt/6.7.2/gcc_64/bin:${PATH}"
+ENV CMAKE_PREFIX_PATH="/opt/Qt/6.7.2/gcc_64"
 
 #9. Copy and extract qwt-6.3.0.tar.bz2, build and install it
 COPY mlib3rd/qwt-6.3.0.tar.bz2 /tmp/
@@ -159,3 +175,30 @@ RUN cd /tmp \
     && rm -rf /tmp/qwt-6.3.0 /tmp/qwt-6.3.0.tar.bz2
 
 ENV QT_QPA_PLATFORM=xcb
+
+# 10. Desktop appearance: make GUI apps blend in with an Ubuntu/GNOME host.
+#     start-qt-container.sh additionally bind-mounts the host's own theme,
+#     icon and font directories, so the container follows the host live; these
+#     packages are the fallback for running the image on its own.
+RUN apt-get update && apt-get install -y \
+    yaru-theme-gtk \
+    yaru-theme-icon \
+    yaru-theme-sound \
+    fonts-ubuntu \
+    gnome-themes-extra \
+    libcanberra-gtk3-module \
+    dbus-x11 \
+    && fc-cache -f \
+    && rm -rf /var/lib/apt/lists/*
+
+# Qt (Qt Creator included) takes its palette and fonts from the GTK theme,
+# which in turn follows the host's XSETTINGS over the shared X display.
+ENV QT_QPA_PLATFORMTHEME=gtk3
+
+# 11. Audio: the ALSA -> PulseAudio bridge lets snd_pcm_open("default", ...)
+#     reach the host's audio server, the way pipewire-alsa does on the host.
+#     host-audio.sh mounts the socket and writes /etc/asound.conf.
+RUN apt-get update && apt-get install -y \
+    libasound2-plugins \
+    alsa-utils \
+    && rm -rf /var/lib/apt/lists/*
