@@ -3,8 +3,8 @@ services:
     container_name: rqt-based-env
     image: rqt-based-env:latest
     build:
-      context: ..
-      dockerfile: .devcontainer/dockerfile
+      context: .
+      dockerfile: dockerfile
     command: /sbin/init
     network_mode: host
     privileged: true
@@ -24,23 +24,19 @@ services:
       - NO_AT_BRIDGE=1
       - PULSE_SERVER=unix:/run/host-pulse
       - PULSE_COOKIE=/root/.config/pulse/cookie
-      # Host theme/icon/font dirs are mounted under /usr/local/share, which is
-      # searched first; Xcursor needs the path spelled out. See host-theme.sh.
       - XDG_DATA_DIRS=/usr/local/share:/usr/share
       - XCURSOR_PATH=/root/.icons:/usr/local/share/icons:/usr/share/icons:/usr/share/pixmaps
     volumes:
       - /sys/fs/cgroup:/sys/fs/cgroup:rw
       - /tmp/.X11-unix:/tmp/.X11-unix
-      # Host desktop appearance (read-only, additive)
       - /usr/share/themes:/usr/local/share/themes:ro
       - /usr/share/icons:/usr/local/share/icons:ro
       - /usr/share/fonts:/usr/local/share/fonts:ro
-      # Host audio: live sound device nodes + the host's audio server socket
       - /dev/snd:/dev/snd
       - ${XDG_RUNTIME_DIR}/pulse/native:/run/host-pulse
       - ${HOME}/.config/pulse/cookie:/root/.config/pulse/cookie:ro
       - ./fastdds-profile.xml:/opt/ros/fastdds-profile.xml:ro
-      - ${HOME}/workspace/my-work:/workspace
+      - ./projects:/workspace
       - ~/.docker-qtcreator/config:/root/.config/QtProject
       - ~/.docker-qtcreator/share:/root/.local/share/QtProject
       - ~/.docker-qtcreator/cache:/root/.cache/QtProject

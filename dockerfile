@@ -17,24 +17,22 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 ENV LANG=en_US.UTF-8
 
-# 2. Add ROS 2 repository for ROS Rolling
+# 2. Add ROS2 repository for ROS Rolling
 COPY mlib3rd/rolling.tar.xz /tmp/
 RUN cd / \
     && tar xJf /tmp/rolling.tar.xz \
     && rm -f /tmp/rolling.tar.xz
 
-# 2b. Python packages ROS 2 expects. The tarball above carries no apt metadata,
-#     so nothing pulls these in on its own; the list mirrors the host's. Keep it
-#     one package per line with no comments or blanks - xargs feeds every line
-#     straight to apt. 14 ROS-tooling entries (bloom, rosdep, vcstool, colcon-*)
-#     were dropped: they exist only in the ROS apt repo at packages.ros.org,
-#     which this image does not configure, and apt aborts the whole install on
-#     an unresolvable name. colcon arrives via pip further down.
+# Python packages ROS2
 COPY mlib3rd/python3_pkgs.txt /tmp/python3_pkgs.txt
 RUN apt-get update && \
     xargs apt-get install -y --no-install-recommends < /tmp/python3_pkgs.txt && \
     rm -f /tmp/python3_pkgs.txt && \
     rm -rf /var/lib/apt/lists/*
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends colcon \
+    && rm -rf /var/lib/apt/lists/*
 
 # 3. Install requested packages and tools
 RUN apt-get update && apt-get install -y \
@@ -101,12 +99,8 @@ RUN apt-get update && apt-get install -y \
     libclang-dev libglm-dev libcups2-dev libsoundtouch-dev libasound2-dev \
     wireshark ffmpeg fonts-roboto \
     zlib1g-dev graphviz doxygen gettext \
-    python3-numpy \
-    python3-lark \
     && ldconfig \
     && rm -rf /var/lib/apt/lists/*
-
-RUN pip install --break-system-packages -U colcon-common-extensions
 
 # 4. Copy and build Boost 1.83.0 from tarball
 COPY mlib3rd/boost_1_83_0.tar.gz /tmp/
@@ -126,9 +120,20 @@ RUN mkdir -p /usr/local/share/fonts \
     && fc-cache -f -v \
     && rm -rf /tmp/JetBrains_Mono-and-Roboto_Condensed.zip /tmp/fonts_temp
 
-# 6. Install Snap7 where the linker searches for libraries
-COPY mlib3rd/snap7/libsnap7.so /usr/lib/
-RUN ldconfig
+# 6. snap7
+COPY mlib3rd/snap7-full-1.4.2.7z /tmp/
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends 7zip \
+    && cd /tmp \
+    && 7z x -y snap7-full-1.4.2.7z \
+    && cd snap7-full-1.4.2/build/unix \
+    && make -f x86_64_linux.mk install \
+    && ldconfig \
+    && test -e /usr/lib/libsnap7.so \
+    && apt-get purge -y --auto-remove 7zip \
+    && cd / \
+    && rm -rf /tmp/snap7-full-1.4.2 /tmp/snap7-full-1.4.2.7z \
+    && rm -rf /var/lib/apt/lists/*
 
 # 7. Copy, build, and install rtl-sdr, and add blacklist configuration
 COPY mlib3rd/rtl-sdr.tar.xz /tmp/
@@ -155,10 +160,10 @@ RUN unzip -q /tmp/digital-map.zip -d /opt/ \
 
 RUN echo "source /opt/ros/rolling/setup.bash" >> /root/.bashrc
 
+# Qt
 ADD mlib3rd/Qt.tar.gz /opt/
-
-ENV PATH="/opt/Qt/Tools/QtCreator/bin:/opt/Qt/6.7.2/gcc_64/bin:${PATH}"
-ENV CMAKE_PREFIX_PATH="/opt/Qt/6.7.2/gcc_64"
+ENV PATH="/opt/Qt/Tools/QtCreator/bin:/opt/Qt/6.7.3/gcc_64/bin:${PATH}"
+ENV CMAKE_PREFIX_PATH="/opt/Qt/6.7.3/gcc_64"
 
 #9. Copy and extract qwt-6.3.0.tar.bz2, build and install it
 COPY mlib3rd/qwt-6.3.0.tar.bz2 /tmp/
@@ -167,7 +172,7 @@ RUN cd /tmp \
     && cd qwt-6.3.0 \
     && sed -i '/^QT *=/s/$/ svg/' qwt.pro \
     && sed -i 's/^[[:space:]]*QWT_CONFIG *=.*QwtSvg/# QWT_CONFIG += QwtSvg/' qwtconfig.pri \
-    && /opt/Qt/6.7.2/gcc_64/bin/qmake \
+    && /opt/Qt/6.7.3/gcc_64/bin/qmake \
     && make -j"$(nproc)" \
     && make install \
     && echo "/usr/local/qwt-6.3.0/lib" > /etc/ld.so.conf.d/qwt.conf \
@@ -176,10 +181,7 @@ RUN cd /tmp \
 
 ENV QT_QPA_PLATFORM=xcb
 
-# 10. Desktop appearance: make GUI apps blend in with an Ubuntu/GNOME host.
-#     start-qt-container.sh additionally bind-mounts the host's own theme,
-#     icon and font directories, so the container follows the host live; these
-#     packages are the fallback for running the image on its own.
+# 10. Host's theme
 RUN apt-get update && apt-get install -y \
     yaru-theme-gtk \
     yaru-theme-icon \
@@ -191,14 +193,18 @@ RUN apt-get update && apt-get install -y \
     && fc-cache -f \
     && rm -rf /var/lib/apt/lists/*
 
-# Qt (Qt Creator included) takes its palette and fonts from the GTK theme,
-# which in turn follows the host's XSETTINGS over the shared X display.
 ENV QT_QPA_PLATFORMTHEME=gtk3
 
-# 11. Audio: the ALSA -> PulseAudio bridge lets snd_pcm_open("default", ...)
-#     reach the host's audio server, the way pipewire-alsa does on the host.
-#     host-audio.sh mounts the socket and writes /etc/asound.conf.
+# 11. Host's audio
 RUN apt-get update && apt-get install -y \
     libasound2-plugins \
     alsa-utils \
     && rm -rf /var/lib/apt/lists/*
+
+# 12. Keep the container's systemd out of the host's device management
+RUN systemctl mask \
+    systemd-udevd.service \
+    systemd-udevd-control.socket \
+    systemd-udevd-kernel.socket \
+    systemd-udev-trigger.service \
+    systemd-udev-settle.service

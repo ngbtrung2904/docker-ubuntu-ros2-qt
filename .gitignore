@@ -98,5 +98,10 @@ build/
 install/
 log/
 external/
-docker-img/
+# Large local-only trees: build inputs, the exported image, and the project
+# sources this environment mounts at /workspace. None of them belong in the
+# history of an environment definition.
 mlib3rd/
+docker-img/
+images/
+projects/

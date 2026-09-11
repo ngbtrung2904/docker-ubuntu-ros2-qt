@@ -1,0 +1,8 @@
+# The build context is the repository root because the dockerfile copies from
+# mlib3rd/. Everything else large in here is local-only and would otherwise be
+# uploaded to the daemon on every build.
+.git
+.claude
+images/
+projects/
+*.md
