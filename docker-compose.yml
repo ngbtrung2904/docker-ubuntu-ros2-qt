@@ -5,6 +5,7 @@ services:
     build:
       context: .
       dockerfile: dockerfile
+      network: host
     command: /sbin/init
     network_mode: host
     privileged: true
