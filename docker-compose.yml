@@ -41,6 +41,11 @@ services:
       - ~/.docker-qtcreator/config:/root/.config/QtProject
       - ~/.docker-qtcreator/share:/root/.local/share/QtProject
       - ~/.docker-qtcreator/cache:/root/.cache/QtProject
+      - ${HOME}/.app:/root/.app
+      - ${HOME}/rrecord:/root/rrecord
+      - ${HOME}/recordings:/root/recordings
+      # Copied into /root/.ssh by scripts/start-qt-container.sh --apply-only
+      - ${HOME}/.ssh:/run/host-ssh:ro
     devices:
       - /dev/dri
     deploy:
