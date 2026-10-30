@@ -3,15 +3,29 @@
 # Container name so we can exec into the running systemd container
 CONTAINER_NAME="rqt-based-env"
 
-# Everything this script mounts lives beside it, so resolve that once rather
-# than depending on the directory the user happens to be in.
+# Everything this script mounts lives in the folder above scripts/, so resolve
+# that once rather than depending on the directory the user happens to be in.
 SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
+ROOT_DIR="$(dirname "$SCRIPT_DIR")"
 
 APPLY_ONLY=0
-if [ "$1" = "--apply-only" ]; then
-    APPLY_ONLY=1
-    [ -n "$2" ] && CONTAINER_NAME="$2"
-fi
+START_GUI=0
+SERVICE_ROLE=""
+case "$1" in
+    --apply-only)
+        APPLY_ONLY=1
+        [ -n "$2" ] && CONTAINER_NAME="$2"
+        ;;
+    # Used by the host unit that install-autostart.sh writes.
+    --service)
+        SERVICE_ROLE="$2"
+        SERVICE_VARIANT="$3"
+        ;;
+    # Used by the RDD desktop icon and the LCMS login autostart.
+    --start-gui)
+        START_GUI=1
+        ;;
+esac
 
 # ----------------------------------------------------------------------------
 # Host appearance: theme, icons, cursor and fonts
@@ -91,6 +105,27 @@ if [ -S "$_host_audio_runtime/pulse/native" ]; then
         )
     fi
 fi
+
+# ----------------------------------------------------------------------------
+# App data kept on the host: system logs, recorded sessions, exported videos
+# ----------------------------------------------------------------------------
+# The apps write these below $HOME, which is /root in the container and gone
+# with it. Mounting the host user's folders keeps the bare-metal paths.
+HOST_DATA_ARGS=()
+for _host_data_dir in .app rrecord recordings; do
+    # Created here, or Docker would create them root-owned.
+    mkdir -p "$HOME/$_host_data_dir"
+    HOST_DATA_ARGS+=( -v "$HOME/$_host_data_dir:/root/$_host_data_dir" )
+done
+
+# ----------------------------------------------------------------------------
+# Host SSH keys: the console's power-off scripts ssh to the station machines
+# ----------------------------------------------------------------------------
+# The apps run as root in the container, so root needs the host user's key and
+# known_hosts (install-ssh-target.sh sets them up). Mounted read-only aside and
+# copied in by apply_host_ssh: ssh rejects a ~/.ssh/config that root does not own.
+HOST_SSH_ARGS=()
+[ -d "$HOME/.ssh" ] && HOST_SSH_ARGS+=( -v "$HOME/.ssh:/run/host-ssh:ro" )
 
 # ----------------------------------------------------------------------------
 # Post-start steps, both needing a running container
@@ -282,6 +317,145 @@ EOF
     echo "Audio: ALSA 'default' routed to the host audio server."
 }
 
+apply_host_ssh() {
+    local container="$1"
+    docker exec "$container" bash -c '
+        [ -d /run/host-ssh ] || exit 0
+        rm -rf /root/.ssh
+        cp -r /run/host-ssh /root/.ssh
+        chown -R root:root /root/.ssh
+        find /root/.ssh -type d -exec chmod 700 {} +
+        find /root/.ssh -type f -exec chmod 600 {} +
+        chmod 644 /root/.ssh/*.pub 2>/dev/null
+    ' && echo "SSH: host keys copied to /root/.ssh."
+}
+
+# ----------------------------------------------------------------------------
+# PAR console: runwayconfig.ini and glidepathconfig.ini linked onto the host desktop
+# ----------------------------------------------------------------------------
+# Qt Creator's build folder for every app.
+: "${BUILD_KIT:=Desktop_Qt_6_7_3-Debug}"
+
+# _repo_dir <variant> <app>: the repository folder in projects/ for that app,
+# whatever prefix or suffix it was unzipped with (<prefix>_par_rdd<suffix>).
+_repo_dir() {
+    local d
+    for d in "$ROOT_DIR/projects/"*_"$1"_"$2"*/; do
+        [ -d "$d" ] && { basename "$d"; return 0; }
+    done
+    return 1
+}
+
+# _par_config_link <container> <file name> <override>: link one of the PAR
+# console's settings files onto the host desktop, once it has been built.
+_par_config_link() {
+    local container="$1" name="$2" rel="$3"
+    local desktop
+    desktop="$(xdg-user-dir DESKTOP 2>/dev/null)";      : "${desktop:=$HOME/Desktop}"
+
+    # Path below projects/ (host) and /workspace (container).
+    if [ -z "$rel" ]; then
+        rel="$(_repo_dir par rdd)" || {
+            echo "PAR rdd not found in projects/ - no desktop link for $name."
+            return 0
+        }
+        rel="$rel/build/$BUILD_KIT/app/settings/$name"
+    fi
+    local host_file="$ROOT_DIR/projects/$rel"
+
+    if [ ! -f "$host_file" ]; then
+        echo "PAR $name not built yet - no desktop link ($host_file)."
+        return 0
+    fi
+
+    # The build runs as root in the container, so the host user could not save
+    # the file. Qt keeps these modes when the console rewrites the file.
+    docker exec "$container" bash -c '
+        chmod a+rw "/workspace/$1" && chmod a+rwx "$(dirname "/workspace/$1")"
+    ' _ "$rel" >/dev/null 2>&1 || true
+
+    # The link lives on the host, where the operator's desktop is.
+    mkdir -p "$desktop"
+    ln -sf "$host_file" "$desktop/$name"
+    echo "PAR: $desktop/$name -> $host_file"
+}
+
+# Set PAR_RDD_RUNWAY_CONFIG or PAR_RDD_GLIDEPATH_CONFIG (a path below projects/)
+# when the build folder is laid out differently.
+apply_par_config_links() {
+    _par_config_link "$1" runwayconfig.ini "$PAR_RDD_RUNWAY_CONFIG"
+    _par_config_link "$1" glidepathconfig.ini "$PAR_RDD_GLIDEPATH_CONFIG"
+}
+
+# ----------------------------------------------------------------------------
+# Radar apps run by the container's systemd, restarted when they crash
+# ----------------------------------------------------------------------------
+# _app_unit <container> <variant> <app> [run.sh args]
+_app_unit() {
+    local repo dir
+    repo="$(_repo_dir "$2" "$3")" || {
+        echo "No $2 $3 repository in $ROOT_DIR/projects." >&2
+        return 1
+    }
+    # rdd runs from the repository root, every other app from src/.
+    dir="$repo"
+    [ "$3" = rdd ] || dir="$repo/src"
+
+    docker exec -i "$1" bash -c "cat > /etc/systemd/system/radar-$3.service" <<EOF
+[Unit]
+Description=Radar $3 ($2)
+# Restart after a crash or a close, however often it happens.
+StartLimitIntervalSec=0
+
+[Service]
+WorkingDirectory=/workspace/$dir
+EnvironmentFile=/run/radar.env
+ExecStart=/bin/bash -c 'source /opt/ros/rolling/setup.bash && exec ./run.sh $4'
+Restart=always
+RestartSec=3
+EOF
+}
+
+apply_radar_apps() {
+    local container="$1" role="$2" v="$3"
+
+    # Services do not inherit the container's docker -e variables, so hand them
+    # over. DISPLAY comes from the logged-in session instead (--start-gui).
+    docker exec "$container" bash -c '
+        tr "\0" "\n" < /proc/1/environ | grep -v -e "^HOME=" -e "^DISPLAY=" > /run/radar.env
+        echo HOME=/root >> /run/radar.env
+    '
+
+    # rmm runs on the ASR LCMS machine, but on the PAR RDD machine.
+    local rmm_role=lcms
+    [ "$v" = par ] && rmm_role=rdd
+
+    local backends=()
+    case "$role" in
+        lcms|rdd|rcms|rrdd)
+            _app_unit "$container" "$v" rdd "--$role" || return 1 ;;
+        rdp)
+            _app_unit "$container" "$v" rdp || return 1
+            backends=(rdp) ;;
+        dvaz|rdvaz)
+            _app_unit "$container" "$v" dvaz || return 1
+            backends=(dvaz) ;;
+        *)
+            echo "Unknown role '$role' (lcms|rdp|rdd|dvaz|rcms|rrdd|rdvaz)." >&2
+            return 1 ;;
+    esac
+    if [ "$role" = "$rmm_role" ]; then
+        _app_unit "$container" "$v" rmm || return 1
+        backends+=(rmm)
+    fi
+
+    docker exec "$container" systemctl daemon-reload
+    for app in "${backends[@]}"; do
+        docker exec "$container" systemctl start "radar-$app.service"
+        echo "Started radar-$app"
+    done
+}
+
 if [ "${BASH_SOURCE[0]}" != "$0" ]; then
     return 0
 fi
@@ -289,7 +463,30 @@ fi
 if [ "$APPLY_ONLY" = 1 ]; then
     apply_host_theme "$CONTAINER_NAME"
     apply_host_audio "$CONTAINER_NAME"
+    apply_host_ssh "$CONTAINER_NAME"
+    apply_par_config_links "$CONTAINER_NAME"
     exit 0
+fi
+
+if [ "$START_GUI" = 1 ]; then
+    xhost +local:docker
+
+    # At login the container may still be booting.
+    for i in $(seq 1 300); do
+        docker exec "$CONTAINER_NAME" test -e /etc/systemd/system/radar-rdd.service 2>/dev/null && break
+        sleep 1
+    done
+
+    docker exec "$CONTAINER_NAME" systemctl set-environment DISPLAY="$DISPLAY"
+    exec docker exec "$CONTAINER_NAME" systemctl start radar-rdd.service
+fi
+
+# The host unit starts before the docker daemon is guaranteed to be up.
+if [ -n "$SERVICE_ROLE" ]; then
+    for i in $(seq 1 120); do
+        docker info >/dev/null 2>&1 && break
+        sleep 1
+    done
 fi
 
 # ----------------------------------------------------------------------------
@@ -319,13 +516,15 @@ docker run -d --rm \
         --gpus all \
         --device=/dev/dri \
         -e NVIDIA_DRIVER_CAPABILITIES=all \
-        -v "$SCRIPT_DIR/fastdds-profile.xml:/opt/ros/fastdds-profile.xml:ro" \
+        -v "$ROOT_DIR/fastdds-profile.xml:/opt/ros/fastdds-profile.xml:ro" \
         -e FASTDDS_DEFAULT_PROFILES_FILE=/opt/ros/fastdds-profile.xml \
         -e ROS_DOMAIN_ID=0 \
-        -v "$SCRIPT_DIR/projects":/workspace \
+        -v "$ROOT_DIR/projects":/workspace \
         -v ~/.docker-qtcreator/config:/root/.config/QtProject \
         -v ~/.docker-qtcreator/share:/root/.local/share/QtProject \
         -v ~/.docker-qtcreator/cache:/root/.cache/QtProject \
+        "${HOST_DATA_ARGS[@]}" \
+        "${HOST_SSH_ARGS[@]}" \
         "${HOST_THEME_ARGS[@]}" \
         "${HOST_AUDIO_ARGS[@]}" \
         rqt-based-env:latest \
@@ -358,6 +557,19 @@ apply_host_theme "$CONTAINER_NAME"
 
 # Route ALSA through the host audio server
 apply_host_audio "$CONTAINER_NAME"
+
+# The host user's ssh keys, for the console's power-off scripts
+apply_host_ssh "$CONTAINER_NAME"
+
+# Desktop links to the PAR console's runwayconfig.ini and glidepathconfig.ini, once built
+apply_par_config_links "$CONTAINER_NAME"
+
+# Started by the host unit: run this machine's apps, then stay in the
+# foreground so the unit relaunches everything if the container dies.
+if [ -n "$SERVICE_ROLE" ]; then
+    apply_radar_apps "$CONTAINER_NAME" "$SERVICE_ROLE" "$SERVICE_VARIANT" || exit 1
+    exec docker wait "$CONTAINER_NAME"
+fi
 
 echo ""
 echo "Container '$CONTAINER_NAME' is running with systemd as init."
