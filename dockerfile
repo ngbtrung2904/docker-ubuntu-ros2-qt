@@ -40,9 +40,11 @@ RUN apt-get update && apt-get install -y \
     nano \
     sudo \
     cmake \
+    iputils-ping \
     gedit \
     git-all \
     openssh-server \
+    sshpass \
     terminator \
     ninja-build \
     libgoogle-glog-dev \
