@@ -105,3 +105,7 @@ mlib3rd/
 docker-img/
 images/
 projects/
+docker-package/
+nvidia-package/
+projects.zip
+projects.zip.sha256
