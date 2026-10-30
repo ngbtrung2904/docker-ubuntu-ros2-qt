@@ -17,7 +17,7 @@ implement a specified change and nothing more.
 - **Comment sparingly and keep each one short.** One or two lines, not a paragraph.
   Comment only where the reason is not visible in the code, and say the reason
   rather than restating what the line does. If an explanation needs more than a few
-  lines, it belongs in `README.md` or `docker-install-guide.md`, with the code
+  lines, it belongs in `README.md`, with the code
   carrying a one-line pointer to it.
 - **Keep the pairs in sync.** `docker-compose.yml` and `docker-compose-portmap.yml`
   are variants of one config, as are `start-qt-container.sh` and

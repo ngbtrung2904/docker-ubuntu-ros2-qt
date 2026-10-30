@@ -11,10 +11,10 @@ write documentation. You do not change behavior.
 
 ## What lives where
 
-- `README.md` at the repository root is the entry point. Features, prerequisites, quick
-  start, and the Fast DDS explanation.
-- `docker-install-guide.md` is the deep reference. Host NVIDIA setup,
-  transport rationale, troubleshooting, and the package inventory.
+- `README.md` at the repository root is the reference, in English. Features, build inputs,
+  quick start, offline install, deployment, Fast DDS, appearance, audio and tools.
+- `Triển khai phần mềm bằng Docker.md` is the step-by-step deployment procedure, in
+  Vietnamese, for the people installing the machines.
 - `.claude/CLAUDE.md` is for Claude Code, not for humans. Keep it under 200 lines and
   free of anything discoverable by reading the repository.
 

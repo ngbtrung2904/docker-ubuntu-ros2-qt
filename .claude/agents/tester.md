@@ -15,7 +15,7 @@ report honestly what it did and did not prove.
 **1. Static checks, always available**
 
 ```bash
-bash -n start-qt-container.sh          # syntax
+bash -n scripts/start-qt-container.sh          # syntax
 shellcheck *.sh                        # if installed
 docker compose -f docker-compose.yml config    # resolves vars and paths
 python3 -c "import xml.dom.minidom,sys; xml.dom.minidom.parse('fastdds-profile.xml')"

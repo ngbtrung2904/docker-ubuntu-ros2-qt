@@ -8,8 +8,8 @@ An environment definition, not an application. It builds a Docker image
 (`rqt-based-env:latest`) for ROS 2 and Qt robotics development, and ships the scripts that launch
 it. There is no test framework and no linter for the repository itself.
 
-Every tracked file sits at the repository root. There is no `.devcontainer/` directory; if a
-document or a comment refers to one, it is stale.
+Every shell script sits in `scripts/`; everything else tracked sits at the repository root. There
+is no `.devcontainer/` directory; if a document or a comment refers to one, it is stale.
 
 Image contents: Ubuntu 24.04, ROS 2 Rolling, Qt with Qt Creator, Qwt 6.3.0, Boost 1.83.0, plus
 X11 and NVIDIA passthrough, host audio, and host desktop theming. `systemd` runs as PID 1.
@@ -20,13 +20,9 @@ X11 and NVIDIA passthrough, host audio, and host desktop theming. `systemd` runs
 | --- | --- |
 | `dockerfile` | Image recipe. Numbered steps, lowercase filename on purpose. |
 | `docker-compose.yml` | Host-network variant. ROS 2 reaches host nodes. |
-| `docker-compose-portmap.yml` | Published ports 61001/61002. ROS 2 does **not** reach host nodes. |
-| `start-qt-container.sh` | Host-network launcher, plus all host theme and audio logic. |
-| `start-qt-container-portmap.sh` | Port-mapped launcher. Sources the above for that logic. |
-| `start-terminal-session.sh` | Throwaway shell, no systemd, no mounts. |
-| `ros2-listener-host.sh` | Host-side listener with the Fast DDS profile applied. |
+| `scripts/start-qt-container.sh` | Host-network launcher, plus all host theme and audio logic. |
+| `scripts/` | Every other shell script too: install, autostart, SSH targets, packing. |
 | `fastdds-profile.xml` | UDPv4-only transport, shared memory disabled. |
-| `devcontainer.json` | VS Code Dev Containers entry point. |
 | `mlib3rd/` | Build inputs. Gitignored, local only. |
 | `images/` | Exported image tarball. Gitignored, local only. |
 | `projects/` | Your project sources, mounted at `/workspace`. Gitignored, local only. |
@@ -44,11 +40,10 @@ docker compose exec rqt-based-env bash
 docker compose down
 ```
 
-Or via the launchers, which additionally apply host theme and audio:
+Or via the launcher, which additionally applies host theme and audio:
 
 ```bash
-./start-qt-container.sh            # --net=host; use when host <-> container ROS 2 is needed
-./start-qt-container-portmap.sh    # ports 61001/61002; ROS 2 discovery to host will NOT work
+scripts/start-qt-container.sh            # --net=host; use when host <-> container ROS 2 is needed
 docker exec -it rqt-based-env bash
 docker stop rqt-based-env
 ```
@@ -96,7 +91,7 @@ Shared memory cannot cross the container boundary, so `fastdds-profile.xml` forc
 `useBuiltinTransports=false`.
 
 **Both sides must load the profile or discovery fails silently.** The container gets it through
-`FASTDDS_DEFAULT_PROFILES_FILE`. On the host, export it yourself or run `./ros2-listener-host.sh`.
+`FASTDDS_DEFAULT_PROFILES_FILE`. On the host, export it yourself.
 `ROS_DOMAIN_ID=0` on both sides. When a node runs but sees no topics, check this first.
 
 ## Host theme and audio are one script, and three pieces are load-bearing
@@ -105,7 +100,7 @@ Shared memory cannot cross the container boundary, so `fastdds-profile.xml` forc
 Running it with `--apply-only [container]` skips the launch and re-applies just the post-start
 steps, which is how a container started by `docker compose up -d` gets them. Sourcing the file
 returns early, giving the caller `HOST_THEME_ARGS`, `HOST_AUDIO_ARGS`, `apply_host_theme`, and
-`apply_host_audio` without launching anything; the port-mapped launcher relies on that.
+`apply_host_audio` without launching anything.
 
 Three things look removable and are not:
 
@@ -124,7 +119,7 @@ first picks the windowing backend, the second the palette source. Both are neede
 
 `systemd` as PID 1 requires `privileged`, host cgroups, the `/sys/fs/cgroup` bind mount, and tmpfs
 on `/run`, `/run/lock`, `/tmp`. These are one unit. Do not remove one while hardening. The
-launchers then poll `systemctl is-system-running` for up to 60 seconds and copy the host timezone in.
+launcher then polls `systemctl is-system-running` for up to 60 seconds and copy the host timezone in.
 
 ## Paths inside the image
 
@@ -143,9 +138,10 @@ cmake, ninja, mold, gcc, clang, ccache, colcon.
 
 ## Conventions
 
-- Keep the paired files in sync: the two compose files, and the two launcher scripts. A fix applied
-  to one usually belongs in the other.
-- Scripts resolve their own directory into `SCRIPT_DIR` and mount relative to that. Never use
+- Keep `docker-compose.yml` and `start-qt-container.sh` in sync: a mount or variable added to one
+  usually belongs in the other.
+- Scripts resolve their own directory into `SCRIPT_DIR` and the repository root (its parent) into
+  `ROOT_DIR`, and mount relative to `ROOT_DIR`. Never use
   `$(pwd)`, and never hardcode a home directory.
 - Dockerfile steps are numbered with a comment header, and each large `COPY` is deleted inside the
   same `RUN` so the layer stays small.
@@ -153,8 +149,6 @@ cmake, ninja, mold, gcc, clang, ccache, colcon.
 
 ## Known drift
 
-- `README.md` and `docker-install-guide.md` describe a `qt-based-img/` layout, a
-  `build-docker-img.sh` that does not exist, a `docker-img/` folder now called `images/`, and Qt
-  6.7.2. Treat both documents as out of date until they are rewritten.
-- `README.md` still documents `host-theme.sh` and `host-audio.sh` as separate files with
-  their own usage examples. They no longer exist.
+- `README.md` and `Triển khai phần mềm bằng Docker.md` were rewritten against the source on
+  2026-10-30; `docker-install-guide.md` was removed and its still-valid content merged into the
+  README.
